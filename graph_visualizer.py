@@ -432,34 +432,4 @@ class GraphVisualizer:
             logger.error(f"Error saving image: {e}")
 
 
-def main():
-    """Demo the visualization system"""
-    visualizer = GraphVisualizer()
 
-    # Create sample graph
-    G = nx.Graph()
-    G.add_node("Acme Security", type="Company")
-    G.add_node("Machine Learning", type="Technology")
-    G.add_node("Cybersecurity", type="Market")
-    G.add_node("CrowdStrike", type="Company")
-
-    G.add_edge("Acme Security", "Machine Learning")
-    G.add_edge("Acme Security", "Cybersecurity")
-    G.add_edge("Acme Security", "CrowdStrike")
-
-    # Load and visualize
-    visualizer.load_networkx_graph(G)
-
-    # Create interactive plot
-    interactive_fig = visualizer.create_interactive_plot("Demo VC Knowledge Graph")
-    visualizer.save_interactive_html(interactive_fig, "demo_interactive.html")
-
-    # Create static plot
-    static_fig = visualizer.create_matplotlib_plot("Demo VC Knowledge Graph")
-    visualizer.save_static_image(static_fig, "demo_static.png")
-
-    print("Demo visualizations created!")
-
-
-if __name__ == "__main__":
-    main()
