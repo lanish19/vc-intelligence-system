@@ -17,6 +17,20 @@ import logging
 from functools import lru_cache
 import community as community_louvain
 
+# Pre-defined styling for different node and edge types
+NODE_STYLES: Dict[str, Dict[str, Any]] = {
+    "Company": {"shape": "circle", "color_scale": px.colors.sequential.Blues, "base_size": 20},
+    "Technology": {"shape": "square", "color_scale": px.colors.sequential.Greens, "base_size": 15},
+    "Market": {"shape": "diamond", "color_scale": px.colors.sequential.Oranges, "base_size": 18},
+    "Investor": {"shape": "triangle-up", "color_scale": px.colors.sequential.Purples, "base_size": 16},
+}
+
+EDGE_STYLES: Dict[str, Dict[str, Any]] = {
+    "direct": {"dash": "solid", "width": 2, "opacity": 0.8},
+    "inferred": {"dash": "dash", "width": 1, "opacity": 0.5},
+    "strong": {"dash": "solid", "width": 3, "opacity": 1.0},
+}
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -215,6 +229,109 @@ class GraphVisualizer:
 
         return fig
 
+    def create_advanced_interactive_graph(
+        self,
+        title: str = "Knowledge Graph",
+        layout_algorithm: str = "force_directed",
+        centrality_measure: str = "pagerank",
+        search: Optional[str] = None,
+        theme: str = "light",
+    ) -> go.Figure:
+        """Create a rich interactive Plotly visualization with advanced features."""
+
+        if not self.graph:
+            raise ValueError("No graph loaded. Call load_networkx_graph first.")
+
+        # Choose layout algorithm
+        if layout_algorithm == "kamada_kawai":
+            pos = nx.kamada_kawai_layout(self.graph)
+        elif layout_algorithm == "circular":
+            pos = nx.circular_layout(self.graph)
+        else:
+            pos = nx.spring_layout(self.graph, k=1, iterations=50)
+        self.pos = pos
+
+        # Centrality-based sizing
+        centrality = self._get_centrality(centrality_measure)
+
+        # Community detection for coloring
+        communities = self._get_communities()
+
+        edge_traces = []
+        for u, v, data in self.graph.edges(data=True):
+            style = EDGE_STYLES["inferred"] if data.get("inferred") else EDGE_STYLES["direct"]
+            if data.get("confidence", 1.0) > 0.8:
+                style = EDGE_STYLES.get("strong", style)
+
+            edge_traces.append(
+                go.Scatter(
+                    x=[pos[u][0], pos[v][0]],
+                    y=[pos[u][1], pos[v][1]],
+                    mode="lines",
+                    line=dict(color="gray", dash=style["dash"], width=style["width"], opacity=style["opacity"]),
+                    hoverinfo="text",
+                    hovertext=f"{u} → {v} ({data.get('rel_type','rel')})",
+                    showlegend=False,
+                )
+            )
+
+        node_traces = []
+        node_types = nx.get_node_attributes(self.graph, "type")
+        for node_type, style in NODE_STYLES.items():
+            nodes_of_type = [n for n, t in node_types.items() if t == node_type]
+            if not nodes_of_type:
+                continue
+
+            colors = []
+            sizes = []
+            texts = []
+
+            color_scale = style["color_scale"]
+            for n in nodes_of_type:
+                com_id = communities.get(n, 0)
+                color = color_scale[com_id % len(color_scale)]
+                if search and search.lower() in n.lower():
+                    color = "#FF0000"
+                colors.append(color)
+                size = style["base_size"] * (1 + centrality.get(n, 0.1))
+                sizes.append(size)
+
+                data = self.graph.nodes[n]
+                text = f"<b>{n}</b><br>Type: {node_type}"
+                for k, v in data.items():
+                    if k not in ["type", "name"]:
+                        text += f"<br>{k}: {v}"
+                texts.append(text)
+
+            node_traces.append(
+                go.Scatter(
+                    x=[pos[n][0] for n in nodes_of_type],
+                    y=[pos[n][1] for n in nodes_of_type],
+                    mode="markers",
+                    marker=dict(size=sizes, color=colors, symbol=style["shape"], line=dict(width=1, color="white")),
+                    hoverinfo="text",
+                    hovertext=texts,
+                    name=node_type,
+                )
+            )
+
+        layout_bg = "#FFFFFF" if theme == "light" else "#1e1e1e"
+        font_color = "#000" if theme == "light" else "#EEE"
+
+        fig = go.Figure(data=edge_traces + node_traces)
+        fig.update_layout(
+            title=title,
+            showlegend=True,
+            hovermode="closest",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            plot_bgcolor=layout_bg,
+            paper_bgcolor=layout_bg,
+            font=dict(color=font_color),
+        )
+
+        return fig
+
     def create_matplotlib_plot(
         self,
         title: str = "Knowledge Graph",
@@ -281,6 +398,23 @@ class GraphVisualizer:
 
         plt.tight_layout()
         return fig
+
+    def export_figure(self, fig: go.Figure, filename: str) -> None:
+        """Export interactive figure to PNG, SVG, or JSON based on filename."""
+        try:
+            if filename.lower().endswith(".png"):
+                fig.write_image(filename, format="png")
+            elif filename.lower().endswith(".svg"):
+                fig.write_image(filename, format="svg")
+            elif filename.lower().endswith(".json"):
+                fig.write_json(filename)
+            elif filename.lower().endswith(".html"):
+                fig.write_html(filename)
+            else:
+                raise ValueError("Unsupported export format")
+            logger.info(f"Exported figure to {filename}")
+        except Exception as e:
+            logger.error(f"Error exporting figure: {e}")
 
     def save_interactive_html(self, fig: go.Figure, filename: str):
         """Save interactive visualization as HTML"""
